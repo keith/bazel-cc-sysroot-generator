@@ -297,10 +297,11 @@ if __name__ == "__main__":
         )
 
     with open(config_file) as f:
+        contents = f.read()
         try:
-            config = json.loads(f.read())
+            config = json.loads(contents)
         except json.JSONDecodeError:
-            config = tl.loads(f.read())
+            config = tl.loads(contents)
 
     platforms = _validate_key(config, "platforms")
     _main(platforms)
