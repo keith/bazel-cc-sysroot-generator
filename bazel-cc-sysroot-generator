@@ -23,7 +23,7 @@ except ImportError:
     try:
         import toml as tl
     except ImportError:
-        raise SystemExit("error: either use python3.11 or run 'pip3 install toml'")
+        tl = None
 
 
 _SUPPORTED_OS = {
@@ -48,6 +48,12 @@ def restore_pwd():
     finally:
         os.chdir(pwd)
 
+
+def _get_required(obj: dict[str, Any], key: str) -> Any:
+    if key not in obj or not obj[key]:
+        raise SystemExit(f"error: {key} must exist and be non null")
+
+    return obj[key]
 
 def _setup_sysroot(suffix: str) -> Path:
     sysroot_dir = Path(f"sysroot-{suffix}")
@@ -77,29 +83,24 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
     with tempfile.TemporaryDirectory() as dirname:
         with restore_pwd():
             os.chdir(dirname)
-            subprocess.check_call(["ar", "x", output_path])
-            # print(dirname)
-            # print(os.listdir("."))
+            subprocess.check_output(["ar", "x", output_path])
             package_dir.mkdir(parents=True, exist_ok=True)
             subprocess.check_output(
                 [
                     "tar",
-                    "xvf",
+                    "xf",
                     "data.tar.zst",
                     "-C",
                     package_dir,
                 ]
             )
-            # with tarfile.open("data.tar.zst") as f:
-            #     f.extractall(package_dir)
 
 
 def _download_packages(
     ubuntu_release: str,
     arch: Arch,
     packages: set[str],
-    package_dir: Path,
-    deleted_patterns: list[str],
+    sysroot_dir: Path,
 ) -> None:
     package_archive = Path(f"/tmp/packages-{ubuntu_release}-{arch.id}.gz")
     if not package_archive.exists():
@@ -140,7 +141,7 @@ def _download_packages(
         results.append(
             pool.apply_async(
                 _download_and_extract_package,
-                (name, f"{arch.ubuntu_mirror}/{path}", package_dir.absolute()),
+                (name, f"{arch.ubuntu_mirror}/{path}", sysroot_dir.absolute()),
             )
         )
 
@@ -151,21 +152,26 @@ def _download_packages(
         if not result.successful():
             raise SystemExit(f"error: {result.get()}")
 
+
+def _cleanup_linux_sysroot(
+    arch: Arch,
+    deleted_patterns: list[str],
+    sysroot_dir: Path,
+) -> None:
     broken_libraries_dir = Path("usr") / "lib" / f"{arch.id}-linux-gnu"
     destination_dir = Path("lib") / f"{arch.id}-linux-gnu"
-    # destination_dir.mkdir(parents=True, exist_ok=True)
-    _remove_deleted_patterns(package_dir, deleted_patterns)
 
     with restore_pwd():
-        os.chdir(package_dir.absolute())
+        os.chdir(sysroot_dir.absolute())
+        _remove_matching_patterns(Path("."), deleted_patterns)
         _fix_package_symlinks(broken_libraries_dir, destination_dir)
 
         # NOTE: Only exists for x86_64, and maybe not future ubuntu releases
         lib64_path = Path("lib64")
         if lib64_path.exists():
-            _fix_package_symlinks(Path("lib64"), destination_dir)
+            _fix_package_symlinks(lib64_path, destination_dir)
 
-    _validate_relative_symlinks(package_dir)
+    _validate_relative_symlinks(sysroot_dir)
 
 
 def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> None:
@@ -184,77 +190,58 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
         if not lib.is_symlink():
             continue
 
-        if lib.exists():
-            print("abc", lib)
-            # TODO: maek sure not absolute
-            # continue
-
+        # Skip symlinks to relative paths that already exist inside the sysroot
+        # TODO: this should validate the relative-ness actually lives inside the sysroot
         if not lib.readlink().is_absolute():
-            print("not changing relative symlink", lib)
             continue
 
         dest = relative_root / lib.readlink().name
-        print(lib, "to ", dest)
-        if not dest.exists():
-            # TODO: Ideally no invalid symlinks would remain, but some do
-            print("skipping ", dest)
-            # continue
-
-        # # NOTE: Path.relative_to has different behavior
-        # rel = os.path.relpath(dest, lib)
-        # if "resolv" in lib.name:
-        #     print("rel:", rel, broken_libraries_dir, destination_dir)
-        #     print(dest)
-
         lib.unlink()
         lib.symlink_to(dest)
 
         if not lib.exists():
-            print("WARNING: dead symlink:", lib)
+            print(f"WARNING: deleting dead symlink: {lib} (you might want to install the providing package instead)")
             lib.unlink()
-            # raise SystemExit("lol no", lib)
 
 
-def _should_delete_file(name: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatch(name, x) for x in patterns)
 
+def _remove_matching_patterns(sysroot: Path, patterns: list[str]) -> None:
+    def _should_delete(name: Path, patterns: list[str]) -> bool:
+        return any(fnmatch.fnmatch(str(name), x) for x in patterns)
 
-def _remove_deleted_patterns(sysroot: Path, patterns: list[str]) -> None:
-    for root, _, files in os.walk(str(sysroot)):
-        # TODO: handle directories
+    for root, dirs, files in os.walk(str(sysroot)):
+        for dir in dirs:
+            path = Path(root) / dir
+            if _should_delete(path, patterns):
+                shutil.rmtree(path)
+
         for file in files:
-            if _should_delete_file(file, patterns):
-                os.remove(os.path.join(root, file))
-            print(file)
+            path = Path(root) / file
+            if _should_delete(path, patterns):
+                path.unlink()
 
 
+# NOTE: this should be solved by the symlink re-writing, but this is another safety net
 def _validate_relative_symlinks(root: Path) -> None:
     for _, _, files in os.walk(str(root)):
         for file in files:
             path = Path(root) / file
             if path.is_symlink():
                 if path.readlink().absolute():
-                    raise SystemExit("no abs paths: ", path)
-
-
-def _validate_key(obj: dict[str, Any], key: str) -> Any:
-    if key not in obj or not obj[key]:
-        raise SystemExit(f"error: {key} must exist and be non null")
-
-    return obj[key]
+                    raise SystemExit(f"{path}: error: expected a relative symlink")
 
 
 def _main(platforms: list[dict[str, Any]]) -> None:
     for platform in platforms:
-        os = _validate_key(platform, "os")
+        os = _get_required(platform, "os")
         if os not in _SUPPORTED_OS:
             raise SystemExit(
                 f"error: unsupported os '{os}', valid options: {', '.join(sorted(_SUPPORTED_OS))}"
             )
 
-        packages = set(_validate_key(platform, "packages"))
+        packages = set(_get_required(platform, "packages"))
         deleted_patterns = platform.get("deleted_patterns") or []
-        archs = _validate_key(platform, "archs")
+        archs = _get_required(platform, "archs")
         for arch_str in archs:
             if arch_str in ("aarch64", "arm64"):
                 arch = ARM64
@@ -266,7 +253,8 @@ def _main(platforms: list[dict[str, Any]]) -> None:
                 )
 
             sysroot_dir = _setup_sysroot(f"{os}-{arch.id}")
-            _download_packages("jammy", arch, packages, sysroot_dir, deleted_patterns)
+            _download_packages("jammy", arch, packages, sysroot_dir)
+            _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
 
     # TODO: print final file size, after archiving
     # TODO: add module.bazel
@@ -301,7 +289,9 @@ if __name__ == "__main__":
         try:
             config = json.loads(contents)
         except json.JSONDecodeError:
+            if not tl:
+                raise SystemExit("error: to use toml, either use python3.11 or run 'pip3 install toml'. Otherwise use json instead")
             config = tl.loads(contents)
 
-    platforms = _validate_key(config, "platforms")
+    platforms = _get_required(config, "platforms")
     _main(platforms)
