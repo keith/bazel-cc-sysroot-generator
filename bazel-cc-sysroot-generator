@@ -279,7 +279,7 @@ def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
             )
 
         sysroot_dir = _setup_sysroot(f"{os_name}-{arch.id}")
-        _download_packages("jammy", arch, packages, sysroot_dir)
+        _download_packages(os_name, arch, packages, sysroot_dir)
         _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
         _write_bazel_files(sysroot_dir)
         _archive(sysroot_dir)
