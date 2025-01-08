@@ -264,6 +264,27 @@ def _validate_relative_symlinks(root: Path) -> None:
                     raise SystemExit(f"{path}: error: expected a relative symlink")
 
 
+def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
+    packages = set(_get_required(platform, "packages"))
+    deleted_patterns = platform.get("deleted_patterns") or []
+    archs = _get_required(platform, "archs")
+    for arch_str in archs:
+        if arch_str in ("aarch64", "arm64"):
+            arch = ARM64
+        elif arch_str in ("amd64", "x86_64"):
+            arch = X86_64
+        else:
+            raise SystemExit(
+                f"error: unsupported arch '{arch_str}', valid options: aarch64, x86_64"
+            )
+
+        sysroot_dir = _setup_sysroot(f"{os_name}-{arch.id}")
+        _download_packages("jammy", arch, packages, sysroot_dir)
+        _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
+        _write_bazel_files(sysroot_dir)
+        _archive(sysroot_dir)
+
+
 def _main(platforms: list[dict[str, Any]]) -> None:
     for platform in platforms:
         os = _get_required(platform, "os")
@@ -272,24 +293,7 @@ def _main(platforms: list[dict[str, Any]]) -> None:
                 f"error: unsupported os '{os}', valid options: {', '.join(sorted(_SUPPORTED_OS))}"
             )
 
-        packages = set(_get_required(platform, "packages"))
-        deleted_patterns = platform.get("deleted_patterns") or []
-        archs = _get_required(platform, "archs")
-        for arch_str in archs:
-            if arch_str in ("aarch64", "arm64"):
-                arch = ARM64
-            elif arch_str in ("amd64", "x86_64"):
-                arch = X86_64
-            else:
-                raise SystemExit(
-                    f"error: unsupported arch '{arch_str}', valid options: aarch64, x86_64"
-                )
-
-            sysroot_dir = _setup_sysroot(f"{os}-{arch.id}")
-            _download_packages("jammy", arch, packages, sysroot_dir)
-            _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
-            _write_bazel_files(sysroot_dir)
-            _archive(sysroot_dir)
+        _generate_ubuntu_sysroot(os, platform)
 
 
 def _build_parser() -> argparse.ArgumentParser:
