@@ -31,6 +31,7 @@ _SUPPORTED_OS = {
     "bionic",
     "focal",
     "jammy",
+    "macos",
     "noble",
 }
 
@@ -285,6 +286,30 @@ def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
         _archive(sysroot_dir)
 
 
+def _generate_macos_sysroot(platform: dict[str, Any]) -> None:
+    sysroot_dir = _setup_sysroot(f"macos")
+    system_sysroot = (
+        subprocess.check_output(["xcrun", "--show-sdk-path", "--sdk", "macosx"])
+        .decode()
+        .strip()
+    )
+    shutil.copytree(
+        system_sysroot,
+        sysroot_dir,
+        symlinks=True,
+        dirs_exist_ok=True,
+    )
+
+    deleted_patterns = platform.get("deleted_patterns") or []
+    with restore_pwd():
+        os.chdir(sysroot_dir.absolute())
+        _remove_matching_patterns(Path("."), deleted_patterns)
+
+    _validate_relative_symlinks(sysroot_dir)
+    _write_bazel_files(sysroot_dir)
+    _archive(sysroot_dir)
+
+
 def _main(platforms: list[dict[str, Any]]) -> None:
     for platform in platforms:
         os = _get_required(platform, "os")
@@ -293,7 +318,10 @@ def _main(platforms: list[dict[str, Any]]) -> None:
                 f"error: unsupported os '{os}', valid options: {', '.join(sorted(_SUPPORTED_OS))}"
             )
 
-        _generate_ubuntu_sysroot(os, platform)
+        if os == "macos":
+            _generate_macos_sysroot(platform)
+        else:
+            _generate_ubuntu_sysroot(os, platform)
 
 
 def _build_parser() -> argparse.ArgumentParser:
