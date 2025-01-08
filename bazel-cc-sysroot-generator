@@ -174,6 +174,18 @@ def _cleanup_linux_sysroot(
     _validate_relative_symlinks(sysroot_dir)
 
 
+def _write_bazel_files(sysroot_dir: Path) -> None:
+    name = sysroot_dir.name
+    (sysroot_dir / "BUILD.bazel").write_text(f"""\
+filegroup(
+    name = "{name}",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+""")
+    (sysroot_dir / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
+
+
 def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> None:
     assert broken_libraries_dir.exists(), broken_libraries_dir
     assert destination_dir.exists(), destination_dir
@@ -255,10 +267,9 @@ def _main(platforms: list[dict[str, Any]]) -> None:
             sysroot_dir = _setup_sysroot(f"{os}-{arch.id}")
             _download_packages("jammy", arch, packages, sysroot_dir)
             _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
+            _write_bazel_files(sysroot_dir)
 
     # TODO: print final file size, after archiving
-    # TODO: add module.bazel
-    # TODO: add BUILD.bazel
 
 
 def _build_parser() -> argparse.ArgumentParser:
