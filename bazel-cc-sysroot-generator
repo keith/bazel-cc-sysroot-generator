@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any
 import argparse
 import contextlib
+import collections
 import fnmatch
 import gzip
 import json
@@ -12,125 +13,23 @@ import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import urllib.error
 import urllib.request
 
-_JAMMY_PACKAGES = [
-    "libbsd-dev",
-    "libbsd0",
-    "libc6",
-    "libc6-dev",
-    "libedit-dev",
-    "libedit2",
-    "libgcc-11-dev",
-    "libgcc-s1",
-    "libmd-dev",
-    "libncurses-dev",
-    "libncurses6",
-    "libstdc++-11-dev",
-    "libstdc++6",
-    "libtinfo6",
-    "linux-libc-dev",
-    "zlib1g-dev",
-    "libmd0",
 
-    # "libc6",
-    # "libc6-dev",
-    # "libcurl4",
-    # "libcurl4-openssl-dev",
-    # "libgcc-7-dev",
-    # "libncursesw6",
-    # "libxml2-dev",
-    # "liblzma-dev",
-    # "libgcc1",
-    # "libicu-dev",
-    # "liblzma-dev",
-    # "libssl-dev",
-    # "libstdc++-7-dev",
-    # "libunwind-dev",
-    # "libxml2-dev",
-    # "linux-libc-dev",
-    # "zlib1g-dev",
-]
-_FOCAL_PACKAGES = [
-    "libbrotli-dev",
-    "libc6",
-    "libc6-dev",
-    "libcurl4",
-    "libcurl4-openssl-dev",
-    "libgcc-9-dev",
-    "libgcc-s1",
-    "libicu-dev",
-    "liblzma-dev",
-    "libssl-dev",
-    "libstdc++-9-dev",
-    "libxml2-dev",
-    "linux-libc-dev",
-    "zlib1g-dev",
-]
-_BIONIC_PACKAGES = [
-    "libc6",
-    "libc6-dev",
-    "libcurl4",
-    "libcurl4-openssl-dev",
-    "libgcc-7-dev",
-    "libgcc1",
-    "libicu-dev",
-    "liblzma-dev",
-    "libssl-dev",
-    "libstdc++-7-dev",
-    "libunwind-dev",
-    "libxml2-dev",
-    "linux-libc-dev",
-    "zlib1g-dev",
-]
+_SUPPORTED_OS = {
+    "bionic",
+    "focal",
+    "jammy",
+    "noble",
+}
 
 
-class Arch:
-    def __init__(self, id: str, ubuntu_id: str, ubuntu_mirror: str):
-        self.id = id
-        self.ubuntu_id = ubuntu_id
-        self.ubuntu_mirror = ubuntu_mirror
+Arch = collections.namedtuple("Arch", ["id", "ubuntu_id", "ubuntu_mirror"])
 
-
-ARM64 = Arch("arm64", "arm64", "http://ports.ubuntu.com/ubuntu-ports")
+ARM64 = Arch("aarch64", "arm64", "http://ports.ubuntu.com/ubuntu-ports")
 X86_64 = Arch("x86_64", "amd64", "http://gb.archive.ubuntu.com/ubuntu")
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--ubuntu-release",
-        choices=("bionic", "focal", "jammy"),
-        default="jammy",
-        help="The target Ubuntu release you will run on",
-    )
-    parser.add_argument(
-        "--arch",
-        choices=("x86_64", "arm64", "amd64", "aarch64"),
-        default="x86_64",
-        help="The target architecture to build for",
-    )
-    parser.add_argument(
-        "packages", nargs="*", help="Extra OS packages your build requires"
-    )
-    return parser
-
-
-def _setup_toolchain_root(os: str, arch: Arch) -> Path:
-    toolchain_dir = Path(f"toolchain-{os}-{arch.id}")
-    if toolchain_dir.is_dir():
-        shutil.rmtree(toolchain_dir)
-    elif toolchain_dir.exists():
-        toolchain_dir.unlink()
-    if toolchain_dir.exists():
-        raise SystemExit(
-            f"error: failed to remove '{toolchain_dir}', please delete it and re-run"
-        )
-    toolchain_dir.mkdir()
-    return toolchain_dir
 
 
 @contextlib.contextmanager
@@ -140,6 +39,20 @@ def restore_pwd():
         yield
     finally:
         os.chdir(pwd)
+
+
+def _setup_sysroot(suffix: str) -> Path:
+    sysroot_dir = Path(f"sysroot-{suffix}")
+    if sysroot_dir.is_dir():
+        shutil.rmtree(sysroot_dir)
+    elif sysroot_dir.exists():
+        sysroot_dir.unlink()
+    if sysroot_dir.exists():
+        raise SystemExit(
+            f"error: failed to remove '{sysroot_dir}', please delete it and re-run"
+        )
+    sysroot_dir.mkdir()
+    return sysroot_dir
 
 
 def _download_and_extract_package(name: str, url: str, package_dir: Path) -> None:
@@ -174,7 +87,11 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
 
 
 def _download_packages(
-    ubuntu_release: str, arch: Arch, packages: List[str], package_dir: Path
+    ubuntu_release: str,
+    arch: Arch,
+    packages: set[str],
+    package_dir: Path,
+    deleted_patterns: list[str],
 ) -> None:
     package_archive = Path(f"/tmp/packages-{ubuntu_release}-{arch.id}.gz")
     if not package_archive.exists():
@@ -188,19 +105,8 @@ def _download_packages(
             x for x in f.read().decode().splitlines() if x.startswith("Filename: ")
         ]
 
-    if ubuntu_release == "focal":
-        os_packages = _FOCAL_PACKAGES
-    elif ubuntu_release == "bionic":
-        os_packages = _BIONIC_PACKAGES
-    elif ubuntu_release == "jammy":
-        os_packages = _JAMMY_PACKAGES
-    else:
-        raise SystemExit(f"error: unsupported ubuntu_release: {ubuntu_release}")
-
-    os_packages += packages
-
     package_paths = {}
-    needed_packages = set(os_packages)
+    needed_packages = set(packages)
     for filename in files:
         if not needed_packages:
             break
@@ -212,7 +118,7 @@ def _download_packages(
                 needed_packages.remove(package)
                 break
 
-    missing_packages = set(os_packages) - set(package_paths.keys())
+    missing_packages = packages - set(package_paths.keys())
     if missing_packages:
         raise SystemExit(
             "Failed to find some packages, please report this issue: {}".format(
@@ -240,19 +146,23 @@ def _download_packages(
     broken_libraries_dir = Path("usr") / "lib" / f"{arch.id}-linux-gnu"
     destination_dir = Path("lib") / f"{arch.id}-linux-gnu"
     # destination_dir.mkdir(parents=True, exist_ok=True)
-    _remove_unused_files(package_dir)
+    _remove_deleted_patterns(package_dir, deleted_patterns)
 
     with restore_pwd():
         os.chdir(package_dir.absolute())
         _fix_package_symlinks(broken_libraries_dir, destination_dir)
-        _fix_package_symlinks(Path("lib64"), destination_dir)
+
+        # NOTE: Only exists for x86_64, and maybe not future ubuntu releases
+        lib64_path = Path("lib64")
+        if lib64_path.exists():
+            _fix_package_symlinks(Path("lib64"), destination_dir)
 
     _validate_relative_symlinks(package_dir)
 
 
 def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> None:
-    assert broken_libraries_dir.exists()
-    assert destination_dir.exists()
+    assert broken_libraries_dir.exists(), broken_libraries_dir
+    assert destination_dir.exists(), destination_dir
 
     relative_root = Path(".")
     for _ in range(0, len(broken_libraries_dir.parts)):
@@ -297,41 +207,18 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
             # raise SystemExit("lol no", lib)
 
 
-_DELETED_FILES = {
-    "*.pc",
-    "gconv.h",
-    "libasan*",
-    "libc.a",
-    "libedit.a",
-    "liblsan*",
-    "libm-*.a",
-    "libmd.a",
-    "libpanel.a",
-    "libstdc*.a",
-    "libtinfo.a",
-    "libtsan*",
-    "libubsan*",
-}
+def _should_delete_file(name: str, patterns: list[str]) -> bool:
+    return any(fnmatch.fnmatch(name, x) for x in patterns)
 
 
-def _should_delete_file(name: str) -> bool:
-    return any(fnmatch.fnmatch(name, x) for x in _DELETED_FILES)
-
-
-def _remove_unused_files(root: Path) -> None:
-    shutil.rmtree(root / "etc")
-    shutil.rmtree(root / "usr" / "bin")
-    shutil.rmtree(root / "usr" / "lib" / "valgrind")
-    shutil.rmtree(root / "usr" / "lib" / "x86_64-linux-gnu" / "audit")
-    shutil.rmtree(root / "usr" / "lib" / "x86_64-linux-gnu" / "gconv")
-    shutil.rmtree(root / "usr" / "lib" / "x86_64-linux-gnu" / "pkgconfig")
-    shutil.rmtree(root / "usr" / "share")
-
-    for root, _, files in os.walk(str(root)):
+def _remove_deleted_patterns(sysroot: Path, patterns: list[str]) -> None:
+    for root, _, files in os.walk(str(sysroot)):
+        # TODO: handle directories
         for file in files:
-            if _should_delete_file(file):
+            if _should_delete_file(file, patterns):
                 os.remove(os.path.join(root, file))
             print(file)
+
 
 def _validate_relative_symlinks(root: Path) -> None:
     for _, _, files in os.walk(str(root)):
@@ -341,18 +228,62 @@ def _validate_relative_symlinks(root: Path) -> None:
                 if path.readlink().absolute():
                     raise SystemExit("no abs paths: ", path)
 
-def _main(os: str, arch: Arch, packages: List[str]) -> None:
-    toolchain_dir = _setup_toolchain_root(os, arch)
-    _download_packages("jammy", arch, packages, toolchain_dir)
+
+def _validate_key(obj: dict[str, Any], key: str) -> Any:
+    if key not in obj or not obj[key]:
+        raise SystemExit(f"error: {key} must exist and be non null")
+
+    return obj[key]
+
+
+def _main(platforms: list[dict[str, Any]]) -> None:
+    for platform in platforms:
+        os = _validate_key(platform, "os")
+        if os not in _SUPPORTED_OS:
+            raise SystemExit(
+                f"error: unsupported os '{os}', valid options: {', '.join(sorted(_SUPPORTED_OS))}"
+            )
+
+        packages = set(_validate_key(platform, "packages"))
+        deleted_patterns = platform.get("deleted_patterns") or []
+        archs = _validate_key(platform, "archs")
+        for arch_str in archs:
+            if arch_str in ("aarch64", "arm64"):
+                arch = ARM64
+            elif arch_str in ("amd64", "x86_64"):
+                arch = X86_64
+            else:
+                raise SystemExit(
+                    f"error: unsupported arch '{arch_str}', valid options: aarch64, x86_64"
+                )
+
+            sysroot_dir = _setup_sysroot(f"{os}-{arch.id}")
+            _download_packages("jammy", arch, packages, sysroot_dir, deleted_patterns)
+
+    # TODO: print final file size, after archiving
+    # TODO: add module.bazel
+    # TODO: add BUILD.bazel
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        default="sysroot-config.json",
+        help="The config file to read from",
+    )
+    return parser
 
 
 if __name__ == "__main__":
     args = _build_parser().parse_args()
-    if args.arch == ("amd64", "x86_64"):
-        arch = X86_64
-    elif args.arch in ("aarch64", "arm64"):
-        arch = ARM64
-    else:
-        raise SystemExit(f"error: invalid arch: {args.arch}")
+    if not os.path.exists(args.config):
+        raise SystemExit(
+            f"{args.config}: error: file does not exist, pass --config to an existing config"
+        )
 
-    _main(args.ubuntu_release, arch, args.packages)
+    with open(args.config) as f:
+        config = json.load(f)
+
+    platforms = _validate_key(config, "platforms")
+    _main(platforms)
