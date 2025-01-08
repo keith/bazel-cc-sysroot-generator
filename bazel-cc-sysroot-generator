@@ -180,7 +180,7 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
 
     # relative_root = Path(os.path.relpath(broken_libraries_dir, destination_dir))
     for lib in broken_libraries_dir.glob("*.so*"):
-        # Ignore valid symlinks or normal files
+        # Skip normal files
         if not lib.is_symlink():
             continue
 
@@ -189,11 +189,11 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
             # TODO: maek sure not absolute
             # continue
 
-        # TODO: Ideally this would be relative to be more portable
-        dest = relative_root / lib.readlink().name
         if not lib.readlink().is_absolute():
             print("not changing relative symlink", lib)
             continue
+
+        dest = relative_root / lib.readlink().name
         print(lib, "to ", dest)
         if not dest.exists():
             # TODO: Ideally no invalid symlinks would remain, but some do
