@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.error
 import urllib.request
@@ -185,6 +186,23 @@ filegroup(
 """)
     (sysroot_dir / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
 
+def _archive(sysroot_dir: Path) -> None:
+    # https://stackoverflow.com/questions/1094841/get-a-human-readable-version-of-a-file-size
+    def sizeof_fmt(num):
+        for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+            if abs(num) < 1024.0:
+                return f"{num:3.1f} {unit}B"
+            num /= 1024.0
+        return f"{num:.1f} YiB"
+
+    output = Path(f"{sysroot_dir.name}.tar.xz")
+    output.unlink(missing_ok=True)
+    with tarfile.open(output, "w:xz") as tar:
+        tar.add(sysroot_dir, arcname="")
+
+    size = output.stat().st_size
+    print(f"{output}: {sizeof_fmt(size)}")
+
 
 def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> None:
     assert broken_libraries_dir.exists(), broken_libraries_dir
@@ -268,8 +286,7 @@ def _main(platforms: list[dict[str, Any]]) -> None:
             _download_packages("jammy", arch, packages, sysroot_dir)
             _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
             _write_bazel_files(sysroot_dir)
-
-    # TODO: print final file size, after archiving
+            _archive(sysroot_dir)
 
 
 def _build_parser() -> argparse.ArgumentParser:
