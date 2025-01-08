@@ -56,6 +56,7 @@ def _get_required(obj: dict[str, Any], key: str) -> Any:
 
     return obj[key]
 
+
 def _setup_sysroot(suffix: str) -> Path:
     sysroot_dir = Path(f"sysroot-{suffix}")
     if sysroot_dir.is_dir():
@@ -186,6 +187,7 @@ filegroup(
 """)
     (sysroot_dir / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
 
+
 def _archive(sysroot_dir: Path) -> None:
     # https://stackoverflow.com/questions/1094841/get-a-human-readable-version-of-a-file-size
     def sizeof_fmt(num):
@@ -230,9 +232,10 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
         lib.symlink_to(dest)
 
         if not lib.exists():
-            print(f"WARNING: deleting dead symlink: {lib} (you might want to install the providing package instead)")
+            print(
+                f"WARNING: deleting dead symlink: {lib} (you might want to install the providing package instead)"
+            )
             lib.unlink()
-
 
 
 def _remove_matching_patterns(sysroot: Path, patterns: list[str]) -> None:
@@ -318,7 +321,9 @@ if __name__ == "__main__":
             config = json.loads(contents)
         except json.JSONDecodeError:
             if not tl:
-                raise SystemExit("error: to use toml, either use python3.11 or run 'pip3 install toml'. Otherwise use json instead")
+                raise SystemExit(
+                    "error: to use toml, either use python3.11 or run 'pip3 install toml'. Otherwise use json instead"
+                )
             config = tl.loads(contents)
 
     platforms = _get_required(config, "platforms")
