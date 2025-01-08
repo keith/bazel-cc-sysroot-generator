@@ -7,7 +7,6 @@ import contextlib
 import collections
 import fnmatch
 import gzip
-import json
 import multiprocessing.pool
 import os
 import shutil
@@ -16,6 +15,14 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+
+try:
+    import tomllib as tl
+except ImportError:
+    try:
+        import toml as tl
+    except ImportError:
+        raise SystemExit("error: either use python3.11 or run 'pip3 install toml'")
 
 
 _SUPPORTED_OS = {
@@ -269,7 +276,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
-        default="sysroot-config.json",
+        default="sysroot-config.toml",
         help="The config file to read from",
     )
     return parser
@@ -283,7 +290,7 @@ if __name__ == "__main__":
         )
 
     with open(args.config) as f:
-        config = json.load(f)
+        config = tl.loads(f.read())
 
     platforms = _validate_key(config, "platforms")
     _main(platforms)
