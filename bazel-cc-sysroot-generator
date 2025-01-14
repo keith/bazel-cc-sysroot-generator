@@ -216,8 +216,6 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
         relative_root /= ".."
 
     relative_root /= destination_dir
-
-    # relative_root = Path(os.path.relpath(broken_libraries_dir, destination_dir))
     for lib in broken_libraries_dir.glob("*.so*"):
         # Skip normal files
         if not lib.is_symlink():
@@ -312,16 +310,16 @@ def _generate_macos_sysroot(platform: dict[str, Any]) -> None:
 
 def _main(platforms: list[dict[str, Any]]) -> None:
     for platform in platforms:
-        os = _get_required(platform, "os")
-        if os not in _SUPPORTED_OS:
+        os_name = _get_required(platform, "os")
+        if os_name not in _SUPPORTED_OS:
             raise SystemExit(
-                f"error: unsupported os '{os}', valid options: {', '.join(sorted(_SUPPORTED_OS))}"
+                f"error: unsupported os '{os_name}', valid options: {', '.join(sorted(_SUPPORTED_OS))}"
             )
 
-        if os == "macos":
+        if os_name == "macos":
             _generate_macos_sysroot(platform)
         else:
-            _generate_ubuntu_sysroot(os, platform)
+            _generate_ubuntu_sysroot(os_name, platform)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -339,7 +337,7 @@ if __name__ == "__main__":
     if not config_file:
         if os.path.exists("sysroot-config.json"):
             config_file = "sysroot-config.json"
-        elif os.path.exists("sysroot-config.toml"):
+        else:
             config_file = "sysroot-config.toml"
 
     if not os.path.exists(config_file):
