@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+
+from pathlib import Path
+import argparse
+import shutil
+import subprocess
+import sys
+import tarfile
+import urllib.error
+import urllib.request
+
+_KEEP_BINARIES = {
+    "clang-19",
+    "clang-tidy",
+    "lld",
+    "llvm-ar",
+    "llvm-as",
+    "llvm-cov",
+    "llvm-dwp",
+    "llvm-nm",
+    "llvm-objcopy",
+    "llvm-objdump",
+    "llvm-profdata",
+}
+
+
+def _archive(toolchain: Path) -> None:
+    # https://stackoverflow.com/questions/1094841/get-a-human-readable-version-of-a-file-size
+    def sizeof_fmt(num):
+        for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+            if abs(num) < 1024.0:
+                return f"{num:3.1f} {unit}B"
+            num /= 1024.0
+        return f"{num:.1f} YiB"
+
+    output = Path(f"{toolchain.name}.tar.xz")
+    output.unlink(missing_ok=True)
+    with tarfile.open(output, "w:xz") as tar:
+        tar.add(toolchain, arcname="")
+
+    size = output.stat().st_size
+    print(f"{output}: {sizeof_fmt(size)}")
+
+
+def _get_strip() -> str:
+    if strip := shutil.which("llvm-strip"):
+        return strip
+
+    if config := shutil.which("llvm-config"):
+        root = Path(
+            subprocess.check_output(["llvm-config", "--bindir"]).decode().strip()
+        )
+        if strip := shutil.which("llvm-strip", path=root):
+            return strip
+
+    return "strip"
+
+
+def _cleanup_unused_files(toolchain: Path) -> None:
+    # These headers are if you were linking this copy of llvm
+    shutil.rmtree(toolchain / "include")
+    shutil.rmtree(toolchain / "libexec")
+    # Doesn't exist on macOS
+    shutil.rmtree(toolchain / "local", ignore_errors=True)
+    shutil.rmtree(toolchain / "share")
+
+    bin_dir = toolchain / "bin"
+    for binary in bin_dir.iterdir():
+        if binary.name in _KEEP_BINARIES or binary.is_symlink():
+            continue
+
+        binary.unlink()
+
+    strip = _get_strip()
+    for binary in bin_dir.iterdir():
+        # Remove symlinks that became broken
+        if not binary.exists():
+            binary.unlink()
+            continue
+
+        if not binary.is_symlink():
+            subprocess.check_call([strip, "-s", binary])
+
+    lib_dir = toolchain / "lib"
+    for lib in lib_dir.iterdir():
+        if lib.name == "clang":
+            continue
+
+        if lib.is_dir():
+            shutil.rmtree(lib)
+        else:
+            lib.unlink()
+
+
+def _write_bazel_files(toolchain: Path) -> None:
+    name = toolchain.name
+    (toolchain / "BUILD.bazel").write_text(f"""\
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "clang",
+    srcs = glob(["bin/clang*"]),
+)
+
+filegroup(
+    name = "ld",
+    srcs = glob(["bin/*ld*"]),
+)
+
+filegroup(
+    name = "include",
+    srcs = glob(["lib/clang/*/include/**"]),
+)
+
+filegroup(
+    name = "bin",
+    srcs = glob(["bin/**"]),
+)
+
+filegroup(
+    name = "lib",
+    srcs = glob([
+        "lib/clang/*/lib/**/*.a",  # sanitizers
+        "lib/clang/*/lib/**/*.o",  # crtbegin.o
+        "lib/clang/*/lib/**/*.so",  # sanitizers
+        "lib/clang/*/lib/**/*.syms",  # sanitizers syms files used during linking
+    ]),
+)
+
+filegroup(
+    name = "ar",
+    srcs = ["bin/llvm-ar"],
+)
+
+filegroup(
+    name = "as",
+    srcs = ["bin/llvm-as"],
+)
+
+filegroup(
+    name = "nm",
+    srcs = ["bin/llvm-nm"],
+)
+
+filegroup(
+    name = "objcopy",
+    srcs = ["bin/llvm-objcopy"],
+)
+
+filegroup(
+    name = "objdump",
+    srcs = ["bin/llvm-objdump"],
+)
+
+filegroup(
+    name = "profdata",
+    srcs = ["bin/llvm-profdata"],
+)
+
+filegroup(
+    name = "dwp",
+    srcs = ["bin/llvm-dwp"],
+)
+
+filegroup(
+    name = "ranlib",
+    srcs = [
+        "bin/llvm-ar",
+        "bin/llvm-ranlib",
+    ],
+)
+
+filegroup(
+    name = "strip",
+    srcs = [
+        "bin/llvm-objcopy",
+        "bin/llvm-strip",
+    ],
+)
+
+filegroup(
+    name = "clang-tidy",
+    srcs = ["bin/clang-tidy"],
+)
+""")
+    (toolchain / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
+
+
+
+def _main(toolchain: Path, skip_archive: bool) -> None:
+    _cleanup_unused_files(toolchain)
+    _write_bazel_files(toolchain)
+    if not skip_archive:
+        _archive(toolchain)
+
+def _download(url: str, output: Path) -> None:
+    name = url.split("/")[-1]
+    output_archive = Path(f"/tmp/{name}")
+    if output_archive.exists():
+        print(f"Using cached download at {output_archive}")
+    else:
+        try:
+            urllib.request.urlretrieve(url, output_archive)
+        except urllib.error.HTTPError as e:
+            print(
+                f"error: failed to download {name} from {url}: {e}",
+                file=sys.stderr,
+            )
+            raise
+
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True)
+    subprocess.check_output(
+        [
+            "tar",
+            "xf",
+            output_archive,
+            "--strip-components=1",
+            "-C",
+            output,
+        ]
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("name")
+    parser.add_argument("url")
+    parser.add_argument("--skip-archive", action="store_true")
+    return parser
+
+
+if __name__ == "__main__":
+    args = _build_parser().parse_args()
+    path = Path(f"llvm-{args.name}")
+    _download(args.url, path)
+    _main(path, args.skip_archive)
