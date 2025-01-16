@@ -208,8 +208,8 @@ def _archive(sysroot_dir: Path) -> None:
 
 
 def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> None:
-    assert broken_libraries_dir.exists(), broken_libraries_dir
-    assert destination_dir.exists(), destination_dir
+    if not broken_libraries_dir.exists() or not destination_dir.exists():
+        return
 
     relative_root = Path(".")
     for _ in range(0, len(broken_libraries_dir.parts)):
