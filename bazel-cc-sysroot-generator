@@ -109,19 +109,23 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
             )
 
 
-def _download_packages(
-    ubuntu_release: str,
-    arch: Arch,
-    packages: set[str],
-    sysroot_dir: Path,
-) -> None:
+def _download_package_list(ubuntu_release: str, arch: Arch) -> None:
     package_archive = Path(f"/tmp/packages-{ubuntu_release}-{arch.id}.gz")
     if not package_archive.exists():
         print(f"Downloading package list for {ubuntu_release}-{arch.id}...")
         package_url = f"{arch.ubuntu_mirror}/dists/{ubuntu_release}/main/binary-{arch.ubuntu_id}/Packages.gz"
         # TODO: progress reporting
         urllib.request.urlretrieve(package_url, package_archive)
+    return package_archive
 
+
+def _download_packages(
+    ubuntu_release: str,
+    arch: Arch,
+    packages: set[str],
+    sysroot_dir: Path,
+) -> None:
+    package_archive = _download_package_list(ubuntu_release, arch)
     with gzip.open(package_archive, "rb") as f:
         files = [
             x for x in f.read().decode().splitlines() if x.startswith("Filename: ")
