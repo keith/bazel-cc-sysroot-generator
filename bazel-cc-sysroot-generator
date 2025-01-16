@@ -287,7 +287,7 @@ def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
 
 
 def _generate_macos_sysroot(platform: dict[str, Any]) -> None:
-    sysroot_dir = _setup_sysroot(f"macos")
+    sysroot_dir = _setup_sysroot("macos")
     system_sysroot = (
         subprocess.check_output(["xcrun", "--show-sdk-path", "--sdk", "macosx"])
         .decode()
