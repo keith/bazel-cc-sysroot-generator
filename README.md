@@ -33,6 +33,15 @@ deleted_patterns = [
 ]
 ```
 
+For Ubuntu you can optionally specifiy repositories to pull from:
+
+```toml
+[[platforms]]
+os = "jammy"
+repositories = ["main", "universe]
+...
+```
+
 Run `./bazel-cc-sysroot-generator` (optionally passing `--config
 path/to/sysroot-config.toml`).
 
