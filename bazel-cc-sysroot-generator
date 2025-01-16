@@ -342,7 +342,7 @@ if __name__ == "__main__":
         elif os.path.exists("sysroot-config.toml"):
             config_file = "sysroot-config.toml"
 
-    if not os.path.exists(config_file):
+    if config_file is None or not os.path.exists(config_file):
         raise SystemExit(
             f"{config_file}: error: file does not exist, use --config to pass another path"
         )
