@@ -72,6 +72,14 @@ def _setup_sysroot(suffix: str) -> Path:
     return sysroot_dir
 
 
+def _find_data_archive(dirname: Path):
+    for ext in ("zstd", "xz"):
+        path = dirname / f"data.tar.{ext}"
+        if path.exists():
+            return path
+    raise SystemExit(f"error: failed to find data.tar.zst or data.tar.xz in {dirname}")
+
+
 def _download_and_extract_package(name: str, url: str, package_dir: Path) -> None:
     name = url.split("/")[-1]
     output_path = Path(f"/tmp/{name}.deb")
@@ -84,15 +92,17 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
         )
         raise
     with tempfile.TemporaryDirectory() as dirname:
+        dirname = Path(dirname)
         with restore_pwd():
             os.chdir(dirname)
             subprocess.check_output(["ar", "x", output_path])
+            archive = _find_data_archive(dirname)
             package_dir.mkdir(parents=True, exist_ok=True)
             subprocess.check_output(
                 [
                     "tar",
                     "xf",
-                    "data.tar.zst",
+                    archive,
                     "-C",
                     package_dir,
                 ]
