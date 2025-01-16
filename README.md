@@ -5,6 +5,10 @@ with bazel.
 
 ## Usage
 
+### Prerequisites
+
+Please make sure you have at least Python 3.12, `tar`, `zstd`, and `xz-utils` installed.
+
 ### Generate sysroots
 
 Create a config file named `sysroot-config.toml` (or `.json`) to define
