@@ -109,11 +109,13 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
             )
 
 
-def _download_package_list(ubuntu_release: str, arch: Arch) -> None:
-    package_archive = Path(f"/tmp/packages-{ubuntu_release}-{arch.id}.gz")
+def _download_package_list(ubuntu_release: str, repository: str, arch: Arch) -> None:
+    package_archive = Path(f"/tmp/packages-{ubuntu_release}-{repository}-{arch.id}.gz")
     if not package_archive.exists():
-        print(f"Downloading package list for {ubuntu_release}-{arch.id}...")
-        package_url = f"{arch.ubuntu_mirror}/dists/{ubuntu_release}/main/binary-{arch.ubuntu_id}/Packages.gz"
+        print(
+            f"Downloading package list for {ubuntu_release}-{repository}-{arch.id}..."
+        )
+        package_url = f"{arch.ubuntu_mirror}/dists/{ubuntu_release}/{repository}/binary-{arch.ubuntu_id}/Packages.gz"
         # TODO: progress reporting
         urllib.request.urlretrieve(package_url, package_archive)
     return package_archive
@@ -122,14 +124,17 @@ def _download_package_list(ubuntu_release: str, arch: Arch) -> None:
 def _download_packages(
     ubuntu_release: str,
     arch: Arch,
+    repositories: set[str],
     packages: set[str],
     sysroot_dir: Path,
 ) -> None:
-    package_archive = _download_package_list(ubuntu_release, arch)
-    with gzip.open(package_archive, "rb") as f:
-        files = [
-            x for x in f.read().decode().splitlines() if x.startswith("Filename: ")
-        ]
+    files = []
+    for repo in repositories:
+        package_archive = _download_package_list(ubuntu_release, repo, arch)
+        with gzip.open(package_archive, "rb") as f:
+            files.extend(
+                x for x in f.read().decode().splitlines() if x.startswith("Filename: ")
+            )
 
     package_paths = {}
     needed_packages = set(packages)
@@ -279,6 +284,7 @@ def _validate_relative_symlinks(root: Path) -> None:
 
 def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
     packages = set(_get_required(platform, "packages"))
+    repositories = set(platform.get("repositories") or ["main"])
     deleted_patterns = platform.get("deleted_patterns") or []
     archs = _get_required(platform, "archs")
     for arch_str in archs:
@@ -292,7 +298,7 @@ def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
             )
 
         sysroot_dir = _setup_sysroot(f"{os_name}-{arch.id}")
-        _download_packages(os_name, arch, packages, sysroot_dir)
+        _download_packages(os_name, arch, repositories, packages, sysroot_dir)
         _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
         _write_bazel_files(sysroot_dir)
         _archive(sysroot_dir)
