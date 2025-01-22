@@ -42,7 +42,7 @@ For Ubuntu you can optionally specifiy repositories to pull from:
 ```toml
 [[platforms]]
 os = "jammy"
-repositories = ["main", "universe]
+repositories = ["main", "universe"]
 ...
 ```
 
