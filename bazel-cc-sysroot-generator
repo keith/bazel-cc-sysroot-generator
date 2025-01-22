@@ -77,7 +77,7 @@ def _find_data_archive(dirname: Path):
         path = dirname / f"data.tar.{ext}"
         if path.exists():
             return path
-    raise SystemExit(f"error: failed to find data.tar.zst or data.tar.xz in {dirname}")
+    raise ValueError(f"error: failed to find data.tar.zst or data.tar.xz in {dirname}")
 
 
 def _download_and_extract_package(name: str, url: str, package_dir: Path) -> None:
