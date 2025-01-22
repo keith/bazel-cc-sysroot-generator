@@ -1,0 +1,12 @@
+[[platforms]]
+os = "macos"
+deleted_patterns = [
+  "*Swift*",
+  "*swift*",
+  "*iOSSupport*",
+  "*Ruby.framework*",
+  "System/Cryptexes",
+  "System/Library/Perl",
+  "usr/share",
+  "usr/libexec",
+]
