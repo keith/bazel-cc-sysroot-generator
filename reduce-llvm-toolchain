@@ -26,7 +26,7 @@ _KEEP_BINARIES = {
 
 def _archive(toolchain: Path) -> None:
     # https://stackoverflow.com/questions/1094841/get-a-human-readable-version-of-a-file-size
-    def sizeof_fmt(num):
+    def sizeof_fmt(num: float) -> str:
         for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
             if abs(num) < 1024.0:
                 return f"{num:3.1f} {unit}B"
@@ -38,7 +38,7 @@ def _archive(toolchain: Path) -> None:
     with tarfile.open(output, "w:xz") as tar:
         tar.add(toolchain, arcname="")
 
-    size = output.stat().st_size
+    size = float(output.stat().st_size)
     print(f"{output}: {sizeof_fmt(size)}")
 
 
@@ -47,9 +47,7 @@ def _get_strip() -> str:
         return strip
 
     if config := shutil.which("llvm-config"):
-        root = Path(
-            subprocess.check_output(["llvm-config", "--bindir"]).decode().strip()
-        )
+        root = Path(subprocess.check_output([config, "--bindir"]).decode().strip())
         if strip := shutil.which("llvm-strip", path=root):
             return strip
 
@@ -94,7 +92,7 @@ def _cleanup_unused_files(toolchain: Path) -> None:
 
 def _write_bazel_files(toolchain: Path) -> None:
     name = toolchain.name
-    (toolchain / "BUILD.bazel").write_text(f"""\
+    (toolchain / "BUILD.bazel").write_text("""\
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -186,12 +184,12 @@ filegroup(
     (toolchain / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
 
 
-
 def _main(toolchain: Path, skip_archive: bool) -> None:
     _cleanup_unused_files(toolchain)
     _write_bazel_files(toolchain)
     if not skip_archive:
         _archive(toolchain)
+
 
 def _download(url: str, output: Path) -> None:
     name = url.split("/")[-1]

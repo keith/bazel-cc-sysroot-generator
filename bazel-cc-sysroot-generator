@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 import argparse
 import collections
 import contextlib
@@ -22,9 +22,9 @@ try:
     import tomllib as tl
 except ImportError:
     try:
-        import toml as tl
+        import toml as tl  # type: ignore
     except ImportError:
-        tl = None
+        tl = None  # type: ignore
 
 
 _SUPPORTED_OS = {
@@ -43,7 +43,7 @@ X86_64 = Arch("x86_64", "amd64", "http://gb.archive.ubuntu.com/ubuntu")
 
 
 @contextlib.contextmanager
-def restore_pwd():
+def restore_pwd() -> Generator[Any, Any, Any]:
     pwd = os.getcwd()
     try:
         yield
@@ -72,7 +72,7 @@ def _setup_sysroot(suffix: str) -> Path:
     return sysroot_dir
 
 
-def _find_data_archive(dirname: Path):
+def _find_data_archive(dirname: Path) -> Path:
     for ext in ("zst", "zstd", "xz"):
         path = dirname / f"data.tar.{ext}"
         if path.exists():
@@ -92,11 +92,10 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
         )
         raise
     with tempfile.TemporaryDirectory() as dirname:
-        dirname = Path(dirname)
         with restore_pwd():
             os.chdir(dirname)
             subprocess.check_output(["ar", "x", output_path])
-            archive = _find_data_archive(dirname)
+            archive = _find_data_archive(Path(dirname))
             package_dir.mkdir(parents=True, exist_ok=True)
             subprocess.check_output(
                 [
@@ -109,7 +108,7 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
             )
 
 
-def _download_package_list(ubuntu_release: str, repository: str, arch: Arch) -> None:
+def _download_package_list(ubuntu_release: str, repository: str, arch: Arch) -> Path:
     package_archive = Path(f"/tmp/packages-{ubuntu_release}-{repository}-{arch.id}.gz")
     if not package_archive.exists():
         print(
@@ -128,7 +127,7 @@ def _download_packages(
     packages: set[str],
     sysroot_dir: Path,
 ) -> None:
-    files = []
+    files: list[str] = []
     for repo in repositories:
         package_archive = _download_package_list(ubuntu_release, repo, arch)
         with gzip.open(package_archive, "rb") as f:
@@ -210,7 +209,7 @@ filegroup(
 
 def _archive(sysroot_dir: Path) -> None:
     # https://stackoverflow.com/questions/1094841/get-a-human-readable-version-of-a-file-size
-    def sizeof_fmt(num):
+    def sizeof_fmt(num: float) -> str:
         for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
             if abs(num) < 1024.0:
                 return f"{num:3.1f} {unit}B"
@@ -222,7 +221,7 @@ def _archive(sysroot_dir: Path) -> None:
     with tarfile.open(output, "w:xz") as tar:
         tar.add(sysroot_dir, arcname="")
 
-    size = output.stat().st_size
+    size = float(output.stat().st_size)
     print(f"{output}: {sizeof_fmt(size)}")
 
 
