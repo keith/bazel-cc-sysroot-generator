@@ -73,7 +73,7 @@ def _setup_sysroot(suffix: str) -> Path:
 
 
 def _find_data_archive(dirname: Path):
-    for ext in ("zstd", "xz"):
+    for ext in ("zst", "zstd", "xz"):
         path = dirname / f"data.tar.{ext}"
         if path.exists():
             return path
