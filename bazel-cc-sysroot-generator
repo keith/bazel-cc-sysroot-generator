@@ -194,13 +194,25 @@ def _cleanup_linux_sysroot(
 def _write_bazel_files(sysroot_dir: Path) -> None:
     name = sysroot_dir.name
     (sysroot_dir / "BUILD.bazel").write_text(f"""\
+load("@bazel_skylib//rules/directory:directory.bzl", "directory")
+
+directory(
+    name = "root",
+    srcs = glob(["**/*"]),
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "{name}",
     srcs = glob(["**"]),
     visibility = ["//visibility:public"],
 )
 """)
-    (sysroot_dir / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
+    (sysroot_dir / "MODULE.bazel").write_text(f"""\
+module(name = "{name}")
+
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+""")
 
 
 def _archive(sysroot_dir: Path) -> None:
