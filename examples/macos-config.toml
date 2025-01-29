@@ -1,12 +1,14 @@
 [[platforms]]
 os = "macos"
 deleted_patterns = [
-  "*Swift*",
-  "*swift*",
+  "*.swift*",
   "*iOSSupport*",
   "*Ruby.framework*",
+  "*Swift*.framework",
+  "*SwiftUI*",
   "System/Cryptexes",
   "System/Library/Perl",
-  "usr/share",
+  "usr/lib/swift",
   "usr/libexec",
+  "usr/share",
 ]
