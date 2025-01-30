@@ -117,12 +117,16 @@ filegroup(
 
 filegroup(
     name = "lib",
-    srcs = glob([
-        "lib/clang/*/lib/**/*.a",  # sanitizers
-        "lib/clang/*/lib/**/*.o",  # crtbegin.o
-        "lib/clang/*/lib/**/*.so",  # sanitizers
-        "lib/clang/*/lib/**/*.syms",  # sanitizers syms files used during linking
-    ]),
+    srcs = glob(
+        [
+            "lib/clang/*/lib/**/*.a",  # sanitizers
+            "lib/clang/*/lib/**/*.o",  # crtbegin.o
+            "lib/clang/*/lib/**/*.so",  # sanitizers linux
+            "lib/clang/*/lib/**/*.dylib",  # sanitizers macOS
+            "lib/clang/*/lib/**/*.syms",  # sanitizers syms files used during linking
+        ],
+        allow_empty = True,
+    ),
 )
 
 filegroup(
