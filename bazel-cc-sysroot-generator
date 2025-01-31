@@ -37,9 +37,12 @@ _SUPPORTED_OS = {
 
 
 Arch = collections.namedtuple("Arch", ["id", "ubuntu_id", "ubuntu_mirror"])
+MirrorInfo = collections.namedtuple("MirrorInfo", ["url", "files"])
 
 ARM64 = Arch("aarch64", "arm64", "http://ports.ubuntu.com/ubuntu-ports")
 X86_64 = Arch("x86_64", "amd64", "http://gb.archive.ubuntu.com/ubuntu")
+
+_PPA_URL = "http://ppa.launchpad.net"
 
 
 @contextlib.contextmanager
@@ -108,16 +111,28 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
             )
 
 
-def _download_package_list(ubuntu_release: str, repository: str, arch: Arch) -> Path:
-    package_archive = Path(f"/tmp/packages-{ubuntu_release}-{repository}-{arch.id}.gz")
+def _download_package_list(
+    ubuntu_release: str, repository: str, arch: Arch
+) -> tuple[Path, str]:
+    package_archive = Path(
+        f"/tmp/packages-{ubuntu_release}-{repository.replace('/', '_')}-{arch.id}.gz"
+    )
+    mirror_url = arch.ubuntu_mirror
+    is_ppa_repository = repository.startswith("ppa:")
+    if is_ppa_repository:
+        repository = repository.lstrip("ppa:")
+        mirror_url = f"{_PPA_URL}/{repository}/ubuntu"
     if not package_archive.exists():
         print(
             f"Downloading package list for {ubuntu_release}-{repository}-{arch.id}..."
         )
-        package_url = f"{arch.ubuntu_mirror}/dists/{ubuntu_release}/{repository}/binary-{arch.ubuntu_id}/Packages.gz"
+        if is_ppa_repository:
+            package_url = f"{mirror_url}/dists/{ubuntu_release}/main/binary-{arch.ubuntu_id}/Packages.gz"
+        else:
+            package_url = f"{mirror_url}/dists/{ubuntu_release}/{repository}/binary-{arch.ubuntu_id}/Packages.gz"
         # TODO: progress reporting
         urllib.request.urlretrieve(package_url, package_archive)
-    return package_archive
+    return package_archive, mirror_url
 
 
 def _download_packages(
@@ -127,42 +142,49 @@ def _download_packages(
     packages: set[str],
     sysroot_dir: Path,
 ) -> None:
-    files: list[str] = []
+    repo_to_mirror_info = {}
     for repo in repositories:
-        package_archive = _download_package_list(ubuntu_release, repo, arch)
+        package_archive, mirror_url = _download_package_list(ubuntu_release, repo, arch)
         with gzip.open(package_archive, "rb") as f:
-            files.extend(
-                x for x in f.read().decode().splitlines() if x.startswith("Filename: ")
+            repo_to_mirror_info[repo] = MirrorInfo(
+                mirror_url,
+                [
+                    x
+                    for x in f.read().decode().splitlines()
+                    if x.startswith("Filename: ")
+                ],
             )
 
-    package_paths = {}
+    package_urls = {}
     needed_packages = set(packages)
-    for filename in files:
-        if not needed_packages:
-            break
-        for package in needed_packages:
-            # Filename: pool/main/c/curl/libcurl4-openssl-dev_7.68.0-1ubuntu2_amd64.deb
-            last_component = filename.split("/")[-1]
-            if last_component.startswith(f"{package}_"):
-                package_paths[package] = filename.split(" ")[-1]
-                needed_packages.remove(package)
+    for repo, mirror_info in repo_to_mirror_info.items():
+        for filename in mirror_info.files:
+            if not needed_packages:
                 break
+            for package in needed_packages:
+                # Filename: pool/main/c/curl/libcurl4-openssl-dev_7.68.0-1ubuntu2_amd64.deb
+                last_component = filename.split("/")[-1]
+                if last_component.startswith(f"{package}_"):
+                    package_urls[package] = (
+                        f"{mirror_info.url}/{filename.split(' ')[-1]}"
+                    )
+                    needed_packages.remove(package)
+                    break
 
-    missing_packages = packages - set(package_paths.keys())
-    if missing_packages:
+    if needed_packages:
         raise SystemExit(
             "Failed to find some packages, please report this issue: {}".format(
-                " ".join(sorted(missing_packages))
+                " ".join(sorted(needed_packages))
             )
         )
 
     pool = multiprocessing.pool.Pool()
     results = []
-    for name, path in package_paths.items():
+    for name, package_url in package_urls.items():
         results.append(
             pool.apply_async(
                 _download_and_extract_package,
-                (name, f"{arch.ubuntu_mirror}/{path}", sysroot_dir.absolute()),
+                (name, package_url, sysroot_dir.absolute()),
             )
         )
 
