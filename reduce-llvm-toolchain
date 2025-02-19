@@ -111,7 +111,10 @@ filegroup(
 
 filegroup(
     name = "include",
-    srcs = glob(["lib/clang/*/include/**"]),
+    srcs = glob([
+        "lib/clang/*/include/**",
+        "lib/clang/*/share/**/*.txt",  # sanitizer default ignore lists
+    ]),
 )
 
 filegroup(
