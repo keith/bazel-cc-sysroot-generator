@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 _KEEP_BINARIES = {
-    "clang-19",
+    "clang",  # NOTE: clang-N is handled below
     "clang-tidy",
     "lld",
     "llvm-ar",
@@ -40,6 +40,22 @@ def _archive(toolchain: Path) -> None:
 
     size = float(output.stat().st_size)
     print(f"{output}: {sizeof_fmt(size)}")
+
+
+def _keep_binary(binary: Path) -> bool:
+    if binary.name in _KEEP_BINARIES:
+        return True
+    if binary.name.startswith("clang-"):
+        # clang-20 -> 20
+        # clang-tidy -> tidy
+        part = binary.name.split("-", 1)[-1]
+        try:
+            int(part)
+            return True
+        except ValueError:
+            pass
+
+    return False
 
 
 def _get_strip() -> str:
@@ -74,7 +90,7 @@ def _cleanup_unused_files(toolchain: Path) -> None:
 
     bin_dir = toolchain / "bin"
     for binary in bin_dir.iterdir():
-        if binary.name in _KEEP_BINARIES or binary.is_symlink():
+        if binary.is_symlink() or _keep_binary(binary):
             continue
 
         binary.unlink()
