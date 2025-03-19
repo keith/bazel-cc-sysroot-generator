@@ -2,7 +2,6 @@
 
 from pathlib import Path
 import argparse
-import platform
 import shutil
 import subprocess
 import sys
@@ -52,7 +51,17 @@ def _get_strip() -> str:
         if strip := shutil.which("llvm-strip", path=root):
             return strip
 
-    return "strip"
+    if brew := shutil.which("brew"):
+        try:
+            root = Path(
+                subprocess.check_output([brew, "--prefix", "llvm"]).decode().strip()
+            )
+            if strip := shutil.which("llvm-strip", path=root / "bin"):
+                return strip
+        except subprocess.CalledProcessError:
+            pass
+
+    raise SystemExit("llvm-strip not found")
 
 
 def _cleanup_unused_files(toolchain: Path) -> None:
@@ -78,10 +87,7 @@ def _cleanup_unused_files(toolchain: Path) -> None:
             continue
 
         if not binary.is_symlink():
-            if platform.system() == "Darwin":
-                subprocess.check_call([strip, "-rSTx", binary])
-            else:
-                subprocess.check_call([strip, "-s", binary])
+            subprocess.check_call([strip, "-s", binary])
 
     lib_dir = toolchain / "lib"
     for lib in lib_dir.iterdir():
