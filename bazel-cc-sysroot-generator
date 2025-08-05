@@ -371,6 +371,12 @@ def _main(platforms: list[dict[str, Any]]) -> None:
             )
 
         if os_name == "macos":
+            if sys.platform != "darwin":
+                print(
+                    "warning: macOS sysroot generation is only supported on macOS",
+                    file=sys.stderr,
+                )
+                continue
             _generate_macos_sysroot(platform)
         else:
             _generate_ubuntu_sysroot(os_name, platform)
