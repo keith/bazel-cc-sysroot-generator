@@ -79,6 +79,11 @@ def _find_data_archive(dirname: Path) -> Path:
     for ext in ("zst", "zstd", "xz"):
         path = dirname / f"data.tar.{ext}"
         if path.exists():
+            if ext in ("zst", "zstd") and not shutil.which("zstd"):
+                raise ValueError(
+                    f"error: found data.tar.{ext}, but zstd is not installed"
+                )
+
             return path
     raise ValueError(f"error: failed to find data.tar.zst or data.tar.xz in {dirname}")
 
