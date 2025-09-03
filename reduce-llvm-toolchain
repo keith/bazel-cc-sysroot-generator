@@ -13,10 +13,12 @@ _KEEP_BINARIES = {
     "clang",  # NOTE: clang-N is handled below
     "clang-format",
     "clang-tidy",
+    "clangd",
     "lld",
     "llvm-ar",
     "llvm-as",
     "llvm-cov",
+    "llvm-dsymutil",
     "llvm-dwp",
     "llvm-nm",
     "llvm-objcopy",
