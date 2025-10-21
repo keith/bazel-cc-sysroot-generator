@@ -122,6 +122,8 @@ def _cleanup_unused_files(toolchain: Path) -> None:
 def _write_bazel_files(toolchain: Path) -> None:
     name = toolchain.name
     (toolchain / "BUILD.bazel").write_text("""\
+load("@bazel_skylib//rules/directory:directory.bzl", "directory")
+
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -140,6 +142,12 @@ filegroup(
         "lib/clang/*/include/**",
         "lib/clang/*/share/**/*.txt",  # sanitizer default ignore lists
     ]),
+)
+
+directory(
+    name = "resource_directory",
+    srcs = glob(["lib/clang/*/**"]),
+    visibility = ["//visibility:public"],
 )
 
 filegroup(
