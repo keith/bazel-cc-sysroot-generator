@@ -283,12 +283,6 @@ def _fix_package_symlinks(broken_libraries_dir: Path, destination_dir: Path) -> 
         lib.unlink()
         lib.symlink_to(dest)
 
-        if not lib.exists():
-            print(
-                f"WARNING: deleting dead symlink: {lib} (you might want to install the providing package instead)"
-            )
-            lib.unlink()
-
 
 def _remove_matching_patterns(sysroot: Path, patterns: list[str]) -> None:
     def _should_delete(name: Path, patterns: list[str]) -> bool:
@@ -308,12 +302,17 @@ def _remove_matching_patterns(sysroot: Path, patterns: list[str]) -> None:
 
 # NOTE: this should be solved by the symlink re-writing, but this is another safety net
 def _validate_relative_symlinks(root: Path) -> None:
-    for _, _, files in os.walk(str(root)):
+    for parent, _, files in os.walk(root.as_posix()):
         for file in files:
-            path = Path(root) / file
+            path = Path(parent) / file
             if path.is_symlink():
-                if path.readlink().absolute():
+                if path.readlink().is_absolute():
                     raise SystemExit(f"{path}: error: expected a relative symlink")
+                if not path.exists():
+                    print(
+                        f"WARNING: deleting dead symlink: {path} (you might want to install the providing package instead)"
+                    )
+                    path.unlink()
 
 
 def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
