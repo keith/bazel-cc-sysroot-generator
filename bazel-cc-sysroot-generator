@@ -220,7 +220,7 @@ def _cleanup_linux_sysroot(
 
 def _write_bazel_files(sysroot_dir: Path) -> None:
     name = sysroot_dir.name
-    (sysroot_dir / "BUILD.bazel").write_text(f"""\
+    (sysroot_dir / "BUILD.bazel").write_text("""\
 load("@bazel_skylib//rules/directory:directory.bzl", "directory")
 
 directory(
@@ -229,8 +229,15 @@ directory(
     visibility = ["//visibility:public"],
 )
 
+# NOTE: Using this is better for merkle tree performance
 filegroup(
-    name = "{name}",
+    name = "directory",
+    srcs = ["."],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "all_files",
     srcs = glob(["**"]),
     visibility = ["//visibility:public"],
 )
@@ -240,6 +247,16 @@ module(name = "{name}")
 
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 """)
+
+
+# https://github.com/bazelbuild/bazel/issues/27028
+def _nest_all_files(sysroot_dir: Path) -> None:
+    nested_dir = sysroot_dir / "sysroot"
+    nested_dir.mkdir()
+    for item in sysroot_dir.iterdir():
+        if item.name == "sysroot":
+            continue
+        shutil.move(item, nested_dir / item.name)
 
 
 def _archive(sysroot_dir: Path) -> None:
@@ -335,6 +352,7 @@ def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
         _download_packages(os_name, arch, repositories, packages, sysroot_dir)
         _cleanup_linux_sysroot(arch, deleted_patterns, sysroot_dir)
         _write_bazel_files(sysroot_dir)
+        _nest_all_files(sysroot_dir)
         _archive(sysroot_dir)
 
 
@@ -359,6 +377,7 @@ def _generate_macos_sysroot(platform: dict[str, Any]) -> None:
 
     _validate_relative_symlinks(sysroot_dir)
     _write_bazel_files(sysroot_dir)
+    _nest_all_files(sysroot_dir)
     _archive(sysroot_dir)
 
 
