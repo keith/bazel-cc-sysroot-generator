@@ -254,7 +254,7 @@ def _nest_all_files(sysroot_dir: Path) -> None:
     nested_dir = sysroot_dir / "sysroot"
     nested_dir.mkdir()
     for item in sysroot_dir.iterdir():
-        if item.name == "sysroot":
+        if item.name in {"sysroot", "MODULE.bazel"}:
             continue
         shutil.move(item, nested_dir / item.name)
 
