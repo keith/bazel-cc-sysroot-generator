@@ -40,6 +40,7 @@ Arch = collections.namedtuple("Arch", ["id", "ubuntu_id", "ubuntu_mirror"])
 MirrorInfo = collections.namedtuple("MirrorInfo", ["url", "files"])
 
 ARM64 = Arch("aarch64", "arm64", "http://ports.ubuntu.com/ubuntu-ports")
+RISCV64 = Arch("riscv64", "riscv64", "http://ports.ubuntu.com/ubuntu-ports")
 X86_64 = Arch("x86_64", "amd64", "http://gb.archive.ubuntu.com/ubuntu")
 
 _PPA_URL = "http://ppa.launchpad.net"
@@ -349,9 +350,11 @@ def _generate_ubuntu_sysroot(os_name: str, platform: dict[str, Any]) -> None:
             arch = ARM64
         elif arch_str in ("amd64", "x86_64"):
             arch = X86_64
+        elif arch_str == "riscv64":
+            arch = RISCV64
         else:
             raise SystemExit(
-                f"error: unsupported arch '{arch_str}', valid options: aarch64, x86_64"
+                f"error: unsupported arch '{arch_str}', valid options: aarch64, riscv64, x86_64"
             )
 
         sysroot_dir = _setup_sysroot(f"{os_name}-{arch.id}")

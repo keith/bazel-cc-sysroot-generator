@@ -1,6 +1,6 @@
 [[platforms]]
 os = "jammy"
-archs = ["aarch64", "x86_64"]
+archs = ["aarch64", "x86_64", "riscv64"]
 packages = [
   "libbsd-dev",
   "libbsd0",
