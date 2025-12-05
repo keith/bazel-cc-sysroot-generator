@@ -136,7 +136,14 @@ def _download_package_list(
         else:
             package_url = f"{mirror_url}/dists/{ubuntu_release}/{repository}/binary-{arch.ubuntu_id}/Packages.gz"
         # TODO: progress reporting
-        urllib.request.urlretrieve(package_url, package_archive)
+        try:
+            urllib.request.urlretrieve(package_url, package_archive)
+        except urllib.error.HTTPError as e:
+            print(
+                f"error: failed to download package list from {package_url}: {e}",
+                file=sys.stderr,
+            )
+            raise
     return package_archive, mirror_url
 
 
