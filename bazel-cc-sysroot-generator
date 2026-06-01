@@ -98,8 +98,8 @@ def _download_url(url: str, output_path: Path) -> None:
 
 
 def _download_and_extract_package(name: str, url: str, package_dir: Path) -> None:
-    name = url.split("/")[-1]
-    output_path = Path(f"/tmp/{name}.deb")
+    filename = url.split("/")[-1]
+    output_path = Path("/tmp") / filename
     try:
         _download_url(url, output_path)
     except (OSError, urllib.error.URLError) as e:
@@ -174,7 +174,7 @@ def _download_packages(
 
     package_urls = {}
     needed_packages = set(packages)
-    for repo, mirror_info in repo_to_mirror_info.items():
+    for mirror_info in repo_to_mirror_info.values():
         for filename in mirror_info.files:
             if not needed_packages:
                 break
