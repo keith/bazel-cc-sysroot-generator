@@ -44,6 +44,7 @@ RISCV64 = Arch("riscv64", "riscv64", "http://ports.ubuntu.com/ubuntu-ports")
 X86_64 = Arch("x86_64", "amd64", "http://gb.archive.ubuntu.com/ubuntu")
 
 _PPA_URL = "http://ppa.launchpad.net"
+_USER_AGENT = "bazel-cc-sysroot-generator/1.0"
 
 
 @contextlib.contextmanager
@@ -89,17 +90,20 @@ def _find_data_archive(dirname: Path) -> Path:
     raise ValueError(f"error: failed to find data.tar.zst or data.tar.xz in {dirname}")
 
 
+def _download_url(url: str, output_path: Path) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    with urllib.request.urlopen(request) as response:
+        with output_path.open("wb") as output:
+            shutil.copyfileobj(response, output)
+
+
 def _download_and_extract_package(name: str, url: str, package_dir: Path) -> None:
     name = url.split("/")[-1]
     output_path = Path(f"/tmp/{name}.deb")
     try:
-        urllib.request.urlretrieve(url, output_path)
-    except urllib.error.HTTPError as e:
-        print(
-            f"error: failed to download {name} from {url}: {e}",
-            file=sys.stderr,
-        )
-        raise
+        _download_url(url, output_path)
+    except (OSError, urllib.error.URLError) as e:
+        raise RuntimeError(f"error: failed to download {name} from {url}: {e}") from None
     with tempfile.TemporaryDirectory() as dirname:
         with restore_pwd():
             os.chdir(dirname)
@@ -138,13 +142,11 @@ def _download_package_list(
             package_url = f"{mirror_url}/dists/{ubuntu_release}/{repository}/binary-{arch.ubuntu_id}/Packages.gz"
         # TODO: progress reporting
         try:
-            urllib.request.urlretrieve(package_url, package_archive)
-        except urllib.error.HTTPError as e:
-            print(
-                f"error: failed to download package list from {package_url}: {e}",
-                file=sys.stderr,
-            )
-            raise
+            _download_url(package_url, package_archive)
+        except (OSError, urllib.error.URLError) as e:
+            raise SystemExit(
+                f"error: failed to download package list from {package_url}: {e}"
+            ) from None
     return package_archive, mirror_url
 
 
@@ -205,8 +207,7 @@ def _download_packages(
     pool.join()
 
     for result in results:
-        if not result.successful():
-            raise SystemExit(f"error: {result.get()}")
+        result.get()
 
 
 def _cleanup_linux_sysroot(
