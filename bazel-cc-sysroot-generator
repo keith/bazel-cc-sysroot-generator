@@ -209,7 +209,10 @@ def _download_packages(
     pool.join()
 
     for result in results:
-        result.get()
+        try:
+            result.get()
+        except Exception as e:
+            raise SystemExit(f"error: {e}") from None
 
 
 def _cleanup_linux_sysroot(
