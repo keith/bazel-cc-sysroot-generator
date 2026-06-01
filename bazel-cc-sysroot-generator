@@ -44,6 +44,7 @@ RISCV64 = Arch("riscv64", "riscv64", "http://ports.ubuntu.com/ubuntu-ports")
 X86_64 = Arch("x86_64", "amd64", "http://gb.archive.ubuntu.com/ubuntu")
 
 _PPA_URL = "http://ppa.launchpad.net"
+_TMP_DIR = Path("/tmp") / "bazel-cc-sysroot-generator"
 _USER_AGENT = "bazel-cc-sysroot-generator/1.0"
 
 
@@ -90,7 +91,13 @@ def _find_data_archive(dirname: Path) -> Path:
     raise ValueError(f"error: failed to find data.tar.zst or data.tar.xz in {dirname}")
 
 
+def _tmp_dir() -> Path:
+    _TMP_DIR.mkdir(parents=True, exist_ok=True)
+    return _TMP_DIR
+
+
 def _download_url(url: str, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     with urllib.request.urlopen(request) as response:
         with output_path.open("wb") as output:
@@ -99,14 +106,14 @@ def _download_url(url: str, output_path: Path) -> None:
 
 def _download_and_extract_package(name: str, url: str, package_dir: Path) -> None:
     filename = url.split("/")[-1]
-    output_path = Path("/tmp") / filename
+    output_path = _tmp_dir() / filename
     try:
         _download_url(url, output_path)
     except (OSError, urllib.error.URLError) as e:
         raise RuntimeError(
             f"error: failed to download {name} from {url}: {e}"
         ) from None
-    with tempfile.TemporaryDirectory() as dirname:
+    with tempfile.TemporaryDirectory(dir=_tmp_dir()) as dirname:
         with restore_pwd():
             os.chdir(dirname)
             subprocess.check_output(["ar", "x", output_path])
@@ -126,8 +133,8 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
 def _download_package_list(
     ubuntu_release: str, repository: str, arch: Arch
 ) -> tuple[Path, str]:
-    package_archive = Path(
-        f"/tmp/packages-{ubuntu_release}-{repository.replace('/', '_')}-{arch.id}.gz"
+    package_archive = _tmp_dir() / (
+        f"packages-{ubuntu_release}-{repository.replace('/', '_')}-{arch.id}.gz"
     )
     mirror_url = arch.ubuntu_mirror
     is_ppa_repository = repository.startswith("ppa:")
