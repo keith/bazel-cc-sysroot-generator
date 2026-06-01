@@ -103,7 +103,9 @@ def _download_and_extract_package(name: str, url: str, package_dir: Path) -> Non
     try:
         _download_url(url, output_path)
     except (OSError, urllib.error.URLError) as e:
-        raise RuntimeError(f"error: failed to download {name} from {url}: {e}") from None
+        raise RuntimeError(
+            f"error: failed to download {name} from {url}: {e}"
+        ) from None
     with tempfile.TemporaryDirectory() as dirname:
         with restore_pwd():
             os.chdir(dirname)
