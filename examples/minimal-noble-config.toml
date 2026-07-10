@@ -1,0 +1,17 @@
+[[platforms]]
+os = "noble"
+repositories = ["main"]
+archs = ["x86_64"]
+packages = [
+  "base-files",
+  "libc6",
+  "libc6-dev",
+  "libgcc-13-dev",
+  "libgcc-s1",
+  "libstdc++-13-dev",
+  "libstdc++6",
+  "linux-libc-dev",
+]
+deleted_patterns = [
+  "etc",
+]
