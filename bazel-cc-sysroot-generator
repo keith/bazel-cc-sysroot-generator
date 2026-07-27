@@ -174,7 +174,7 @@ def _download_package_list(
     mirror_url = arch.ubuntu_mirror
     is_ppa_repository = repository.startswith("ppa:")
     if is_ppa_repository:
-        repository = repository.lstrip("ppa:")
+        repository = repository.removeprefix("ppa:")
         mirror_url = f"{_PPA_URL}/{repository}/ubuntu"
     if not package_archive.exists():
         print(
@@ -253,7 +253,8 @@ def _download_packages(
     for result in results:
         try:
             result.get()
-        except Exception as e:
+        # Worker processes can propagate any exception through AsyncResult.get().
+        except Exception as e:  # noqa: BLE001
             raise SystemExit(f"error: {e}") from None
 
 
