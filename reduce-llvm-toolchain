@@ -5,9 +5,39 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# Starting with LLVM's Ubuntu 22.04 release builds, `lld` is dynamically linked
+# against ICU (libicu70): libicui18n.so.70, libicuuc.so.70, libicudata.so.70.
+# ICU 70 only ships on Ubuntu 22.04 (jammy); newer hosts (e.g. Ubuntu 24.04 ship
+# ICU 74) don't have it, so `ld.lld` fails to load with:
+#   error while loading shared libraries: libicui18n.so.70: cannot open shared
+#   object file
+# `lld` already has RUNPATH `$ORIGIN/../lib` and lists all three ICU libs as
+# direct DT_NEEDED entries, so bundling them into the toolchain's lib/ directory
+# (and staging them next to lld via BUILD.bazel) is enough -- no patchelf needed.
+_LIBICU_VERSION = "70.1-2"
+_LIBICU_SONAMES = (
+    "libicudata.so.70",
+    "libicuuc.so.70",
+    "libicui18n.so.70",
+)
+# name -> (deb arch, multiarch triple, deb url template)
+_LIBICU_DEBS = {
+    "linux-x86_64": (
+        "amd64",
+        "x86_64-linux-gnu",
+        "http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu70_{version}_amd64.deb",
+    ),
+    "linux-aarch64": (
+        "arm64",
+        "aarch64-linux-gnu",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/i/icu/libicu70_{version}_arm64.deb",
+    ),
+}
 
 _KEEP_BINARIES = {
     "clang",  # NOTE: clang-N is handled below
@@ -119,6 +149,49 @@ def _cleanup_unused_files(toolchain: Path) -> None:
             lib.unlink()
 
 
+def _bundle_icu_libs(toolchain: Path, name: str) -> None:
+    """Bundle libicu70 next to lld so it runs on hosts without ICU 70.
+
+    Only the Linux toolchains need this; macOS lld has no ICU dependency.
+    """
+    entry = _LIBICU_DEBS.get(name)
+    if entry is None:
+        return
+
+    deb_arch, triple, url_template = entry
+    url = url_template.format(version=_LIBICU_VERSION)
+    deb = Path(f"/tmp/libicu70_{_LIBICU_VERSION}_{deb_arch}.deb")
+    if deb.exists():
+        print(f"Using cached download at {deb}")
+    else:
+        try:
+            urllib.request.urlretrieve(url, deb)
+        except urllib.error.HTTPError as e:
+            print(f"error: failed to download libicu70 from {url}: {e}", file=sys.stderr)
+            raise
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        # .deb is an `ar` archive containing data.tar.{zst,xz,gz}.
+        subprocess.check_call(["ar", "x", str(deb)], cwd=work)
+        data_tars = list(work.glob("data.tar*"))
+        if not data_tars:
+            raise SystemExit(f"no data.tar member found in {deb}")
+        subprocess.check_call(["tar", "xf", str(data_tars[0])], cwd=work)
+
+        src_dir = work / "usr" / "lib" / triple
+        dst_dir = toolchain / "lib"
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for soname in _LIBICU_SONAMES:
+            src = src_dir / soname
+            if not src.exists():
+                raise SystemExit(f"missing {soname} in {src_dir}")
+            # shutil.copy follows the symlink and writes the real object under
+            # the exact soname lld's DT_NEEDED entry looks for.
+            shutil.copy(src, dst_dir / soname)
+            print(f"bundled {soname} -> {dst_dir / soname}")
+
+
 def _write_bazel_files(toolchain: Path) -> None:
     name = toolchain.name
     (toolchain / "BUILD.bazel").write_text("""\
@@ -133,7 +206,12 @@ filegroup(
 
 filegroup(
     name = "ld",
-    srcs = glob(["bin/*ld*"]),
+    srcs = glob(["bin/*ld*"]) + glob(
+        # Runtime libs bundled next to lld (e.g. libicu70) that it resolves via
+        # its RUNPATH ($ORIGIN/../lib). Empty on macOS.
+        ["lib/*.so*"],
+        allow_empty = True,
+    ),
 )
 
 filegroup(
@@ -228,8 +306,9 @@ filegroup(
     (toolchain / "MODULE.bazel").write_text(f'module(name = "{name}")\n')
 
 
-def _main(toolchain: Path, skip_archive: bool) -> None:
+def _main(toolchain: Path, name: str, skip_archive: bool) -> None:
     _cleanup_unused_files(toolchain)
+    _bundle_icu_libs(toolchain, name)
     _write_bazel_files(toolchain)
     if not skip_archive:
         _archive(toolchain)
@@ -276,4 +355,4 @@ if __name__ == "__main__":
     args = _build_parser().parse_args()
     path = Path(f"llvm-{args.name}")
     _download(args.url, path)
-    _main(path, args.skip_archive)
+    _main(path, args.name, args.skip_archive)
